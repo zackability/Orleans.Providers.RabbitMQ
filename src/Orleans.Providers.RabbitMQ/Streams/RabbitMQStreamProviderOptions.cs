@@ -24,4 +24,21 @@ namespace Orleans.Providers.RabbitMQ.Streams
         public string Username { get; set; }
         public string Password { get; set; }
     }
+
+    public class RabbitMQStreamProviderOptionsValidator : IConfigurationValidator
+    {
+        private RabbitMQStreamProviderOptions rabbitMQStreamProviderOptions;
+        private string name;
+
+        public RabbitMQStreamProviderOptionsValidator(RabbitMQStreamProviderOptions rabbitMQStreamProviderOptions, string name)
+        {
+            this.rabbitMQStreamProviderOptions = rabbitMQStreamProviderOptions;
+            this.name = name;
+        }
+
+        public void ValidateConfiguration()
+        {
+            
+        }
+    }
 }

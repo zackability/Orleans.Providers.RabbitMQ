@@ -35,7 +35,7 @@ namespace Orleans.Providers.RabbitMQ.Streams
             _streamQueueMapper = streamQueueMapper;
             _mapper = mapper;
             _queues = new ConcurrentDictionary<QueueId, object>();
-            CreateConnection();
+            //CreateConnection();
         }
 
         public IQueueAdapterReceiver CreateReceiver(QueueId queueId)
@@ -50,8 +50,8 @@ namespace Orleans.Providers.RabbitMQ.Streams
 
         private void QueueMessageBatchExternal<T>(Guid streamGuid, string streamNamespace, IEnumerable<T> events, StreamSequenceToken token, Dictionary<string, object> requestContext)
         {
-            //if (_connection == null)
-            //    CreateConnection();
+            if (_connection == null)
+                CreateConnection();
 
             var queue = _streamQueueMapper.GetQueueForStream(streamGuid, streamNamespace);
 

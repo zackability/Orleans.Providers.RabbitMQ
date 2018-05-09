@@ -3,13 +3,20 @@ using System.Threading.Tasks;
 using Orleans.Providers.RabbitMQ.Tests.Host.Interfaces;
 using Orleans.Streams;
 using Orleans.Runtime;
+using Microsoft.Extensions.Logging;
 
 namespace Orleans.Providers.RabbitMQ.Tests.Host.Grains
 {
     public class ProducerGrain : Grain, IProducerGrain
     {
+        private readonly ILogger<ProducerGrain> logger;
         private int _counter;
         private IAsyncStream<string> _stream;
+
+        public ProducerGrain(ILogger<ProducerGrain> logger)
+        {
+            this.logger = logger;
+        }
 
         public override Task OnActivateAsync()
         {
@@ -37,7 +44,7 @@ namespace Orleans.Providers.RabbitMQ.Tests.Host.Grains
 
         private async Task SendMessages(params string[] messages)
         {
-            GetLogger().Info("Sending message{0} '{1}'...",
+            logger.Info(">>>Sending message{0} '{1}'...",
                 messages.Length > 1 ? "s" : "", string.Join(",", messages));
             
             if (messages.Length == 1)

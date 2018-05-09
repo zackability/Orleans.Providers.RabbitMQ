@@ -251,3 +251,4 @@ paket-files/
 .idea/
 *.sln.iml
 /Orleans.Providers.RabbitMQ.Tests.Host/*.txt
+/test/Orleans.Providers.RabbitMQ.Tests.Host/appsettings.Development.json

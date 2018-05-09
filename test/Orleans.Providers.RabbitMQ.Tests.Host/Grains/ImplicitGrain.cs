@@ -3,13 +3,20 @@ using Orleans.Providers.RabbitMQ.Tests.Host.Interfaces;
 using System;
 using Orleans.Streams;
 using Orleans.Runtime;
+using Microsoft.Extensions.Logging;
 
 namespace Orleans.Providers.RabbitMQ.Tests.Host.Grains
 {
     [ImplicitStreamSubscription("TestNamespace")]
     public class ImplicitGrain : Grain, IImplicitGrain, IAsyncObserver<string>
     {
+        private readonly ILogger<ImplicitGrain> logger;
         private StreamSubscriptionHandle<string> _subscription;
+
+        public ImplicitGrain(ILogger<ImplicitGrain> logger)
+        {
+            this.logger = logger;
+        }
 
         public async override Task OnActivateAsync()
         {
@@ -30,7 +37,7 @@ namespace Orleans.Providers.RabbitMQ.Tests.Host.Grains
 
         public Task OnNextAsync(string item, StreamSequenceToken token = null)
         {
-            GetLogger().Info("Received message '{0}'!", item);
+            logger.Info("<<<Received message '{0}'!", item);
             return Task.CompletedTask;
         }
     }

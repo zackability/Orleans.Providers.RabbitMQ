@@ -1,6 +1,10 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Orleans.Configuration;
+using Orleans.Configuration.Overrides;
 using Orleans.Providers.Streams.Common;
+using Orleans.Serialization;
 using Orleans.Streams;
 using System;
 using System.Threading.Tasks;
@@ -9,30 +13,38 @@ namespace Orleans.Providers.RabbitMQ.Streams
 {
     public class RabbitMQAdapterFactory<TMapper> : IQueueAdapterFactory where TMapper : IRabbitMQMapper
     {
-        private SimpleQueueAdapterCache _adapterCache;
-        private int _cacheSize;
-        private RabbitMQStreamProviderOptions _config;
-        private IRabbitMQMapper _mapper;
-        private ILoggerFactory _loggeFactory;
-        private string _providerName;
-        private IStreamQueueMapper _streamQueueMapper;
+        private readonly string providerName;
+        private readonly RabbitMQStreamProviderOptions options;
+        private readonly ClusterOptions clusterOptions;
+        private readonly IRabbitMQMapper mapper;
+        private readonly ILoggerFactory loggerFactory;
+        private HashRingBasedStreamQueueMapper streamQueueMapper;
+        private IQueueAdapterCache adapterCache;
 
         protected Func<QueueId, Task<IStreamFailureHandler>> StreamFailureHandlerFactory { private get; set; }
 
-        public void Init(IProviderConfiguration config, string providerName, IServiceProvider serviceProvider)
+        public RabbitMQAdapterFactory(
+            string name,
+            RabbitMQStreamProviderOptions options,
+            HashRingStreamQueueMapperOptions queueMapperOptions,
+            SimpleQueueCacheOptions cacheOptions,
+            IServiceProvider serviceProvider,
+            IOptions<ClusterOptions> clusterOptions,
+            SerializationManager serializationManager,
+            ILoggerFactory loggerFactory)
         {
-            _config = serviceProvider.GetRequiredService<RabbitMQStreamProviderOptions>();
-            _providerName = providerName;
-            _loggeFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
+            providerName = name;
+            this.options = options ?? throw new ArgumentNullException(nameof(options));
+            this.clusterOptions = clusterOptions.Value;
+            //this.SerializationManager = serializationManager ?? throw new ArgumentNullException(nameof(serializationManager));
+            this.loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
+            streamQueueMapper = new HashRingBasedStreamQueueMapper(queueMapperOptions, providerName);
+            adapterCache = new SimpleQueueAdapterCache(cacheOptions, providerName, this.loggerFactory);
+            mapper= ActivatorUtilities.GetServiceOrCreateInstance<TMapper>(serviceProvider);
+        }
 
-            _mapper = serviceProvider.GetRequiredService<IRabbitMQMapper>();
-            _mapper.Init();
-
-            _cacheSize = SimpleQueueAdapterCache.ParseSize(config, 4096);
-            _adapterCache = new SimpleQueueAdapterCache(_cacheSize, providerName, _loggeFactory);
-
-            _streamQueueMapper = new HashRingBasedStreamQueueMapper(_config.NumberOfQueues, _providerName);
-
+        public void Init()
+        {
             if (StreamFailureHandlerFactory == null)
             {
                 StreamFailureHandlerFactory =
@@ -42,7 +54,7 @@ namespace Orleans.Providers.RabbitMQ.Streams
 
         public Task<IQueueAdapter> CreateAdapter()
         {
-            IQueueAdapter adapter = new RabbitMQAdapter(_config, _loggeFactory, _providerName, _streamQueueMapper, _mapper);
+            IQueueAdapter adapter = new RabbitMQAdapter(options, loggerFactory, providerName, streamQueueMapper, mapper);
             return Task.FromResult(adapter);
         }
 
@@ -53,12 +65,23 @@ namespace Orleans.Providers.RabbitMQ.Streams
 
         public IQueueAdapterCache GetQueueAdapterCache()
         {
-            return _adapterCache;
+            return adapterCache;
         }
 
         public IStreamQueueMapper GetStreamQueueMapper()
         {
-            return _streamQueueMapper;
+            return streamQueueMapper;
+        }
+
+        internal static IQueueAdapterFactory Create(IServiceProvider services, string name)
+        {
+            var azureQueueOptions = services.GetOptionsByName<RabbitMQStreamProviderOptions>(name);
+            var queueMapperOptions = services.GetOptionsByName<HashRingStreamQueueMapperOptions>(name);
+            var cacheOptions = services.GetOptionsByName<SimpleQueueCacheOptions>(name);
+            IOptions<ClusterOptions> clusterOptions = services.GetProviderClusterOptions(name);
+            var factory = ActivatorUtilities.CreateInstance<RabbitMQAdapterFactory<TMapper>>(services, name, azureQueueOptions, queueMapperOptions, cacheOptions, clusterOptions);
+            factory.Init();
+            return factory;
         }
     }
 }

@@ -1,11 +1,14 @@
 ﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Orleans;
+using Orleans.Configuration;
 using Orleans.Hosting;
+using Orleans.Providers.RabbitMQ.Hosting;
 using Orleans.Providers.RabbitMQ.Streams;
-using Orleans.Providers.RabbitMQ.Test.Host.Bootstrap;
 using Orleans.Providers.RabbitMQ.Tests.Host.Grains;
-using Orleans.Runtime.Configuration;
+using Orleans.Providers.RabbitMQ.Tests.Host.StartupTasks;
+using Orleans.Streams;
 using System;
 using System.IO;
 using System.Linq;
@@ -74,18 +77,37 @@ namespace Orleans.Providers.RabbitMQ.Tests.Host
 
         private static ISiloHostBuilder WithClusterConfig(this ISiloHostBuilder builder, IConfigurationRoot configRoot)
         {
-            var config = ClusterConfiguration.LocalhostPrimarySilo();
-            config.Globals.ReminderServiceType = GlobalConfiguration.ReminderServiceProviderType.ReminderTableGrain;
-            config.Globals.ClusterId = configRoot["ClusterId"];
-            config.AddMemoryStorageProvider("PubSubStore");
-            config.Globals.RegisterBootstrapProvider<RabbitMQTestBootstrap>("Test");
-            config.AddRabbitMQStreamProvider("Default");
-            builder.UseConfiguration(config);
-            var opt = configRoot.GetSection(RabbitMQStreamProviderOptions.SECTION_NAME).Get<RabbitMQStreamProviderOptions>();
-            builder.ConfigureRabbitMQStreamProvider(opt);
+            string rabbitmqName = "Default";
+
+            builder.AddStartupTask<RabbitMQTestStartupTask>()
+                .UseLocalhostClustering()
+                .AddMemoryGrainStorage("PubSubStore")
+                .AddRabbitMQStreams<RabbitMQDefaultMapper>(name: rabbitmqName, configure: null)
+                //.AddRabbitMQStreams<RabbitMQDefaultMapper>(rabbitmqName, ob =>
+                //    ob.Configure(op =>
+                //     {
+                //         op.Mode = StreamProviderDirection.ReadWrite;
+                //         op.NumberOfQueues = 8;
+                //         op.HostName = "localhost";
+                //         op.Port = 5671;
+                //         op.VirtualHost = "/";
+                //         op.Exchange = "exchange";
+                //         op.ExchangeType = "direct";
+                //         op.ExchangeDurable = false;
+                //         op.AutoDelete = true;
+                //         op.Queue = "queue";
+                //         op.QueueDurable = false;
+                //         op.Namespace = "TestNamespace";
+                //         op.RoutingKey = "#";
+                //         op.Username = "guest";
+                //         op.Password = "guest";
+                //     }))
+                .Configure<ClusterOptions>(configRoot.GetSection("ClusterOptions"))
+                .ConfigureServices(s => s.Configure<RabbitMQStreamProviderOptions>(rabbitmqName, configRoot.GetSection(RabbitMQStreamProviderOptions.SECTION_NAME)));
+
             return builder;
         }
-        
+
         private static ISiloHostBuilder WithParts(this ISiloHostBuilder builder)
         {
             return builder
