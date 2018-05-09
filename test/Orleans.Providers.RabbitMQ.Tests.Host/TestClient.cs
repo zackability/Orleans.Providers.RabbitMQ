@@ -8,37 +8,26 @@ using Orleans.Providers.RabbitMQ.Hosting;
 using Orleans.Providers.RabbitMQ.Streams;
 using Orleans.Providers.RabbitMQ.Tests.Host.Grains;
 using Orleans.Providers.RabbitMQ.Tests.Host.StartupTasks;
+using Orleans.Streams;
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
-
 namespace Orleans.Providers.RabbitMQ.Tests.Host
 {
-    public static class TestSilo
+    public static class TestClient
     {
-        private static ISiloHost _siloHost;
+        private static string rabbitmqName = "Default";
+        private static IClusterClient clusterClient;
+        private static IList<StreamSubscriptionHandle<int>> subscriptionHandle;
 
-        public static async Task<int> StopSilo()
+        public async static Task StartClient()
         {
             try
             {
-                await _siloHost.StopAsync();
-                return 0;
-            }
-            catch (Exception exc)
-            {
-                Console.WriteLine(exc);
-                Console.WriteLine("Failure stopping silo.");
-                return 1;
-            }
-        }
-
-        public static async Task StartSilo()
-        {
-            try
-            {
-                var configRoot = GetConfiguration();
-                var builder = new SiloHostBuilder()
+                var configRoot = TestSilo.GetConfiguration();
+                var builder = new ClientBuilder()
                     .WithClusterConfig(configRoot)
                     .WithParts()
                     .WithRabbitMQ(configRoot)
@@ -48,35 +37,52 @@ namespace Orleans.Providers.RabbitMQ.Tests.Host
                         //logging.AddFile("./debug.txt");
                     });
 
-                _siloHost = builder.Build();
-                await _siloHost.StartAsync();
+                clusterClient = builder.Build();
+                await clusterClient.Connect();
+
+                subscriptionHandle = await SubscribeStream(clusterClient);
             }
             catch (Exception exc)
             {
                 Console.WriteLine(exc);
-                Console.WriteLine("Failure Starting silo.");
+                Console.WriteLine("Failure Starting client.");
                 throw exc;
             }
         }
 
-        private static ISiloHostBuilder WithClusterConfig(this ISiloHostBuilder builder, IConfiguration configRoot)
+        public static async Task<int> CloseClient()
+        {
+            try
+            {
+                await Task.WhenAll(subscriptionHandle.Select(h => h.UnsubscribeAsync()));
+                await clusterClient.Close();
+                return 0;
+            }
+            catch (Exception exc)
+            {
+                Console.WriteLine(exc);
+                Console.WriteLine("Failure close client.");
+                return 1;
+            }
+        }
+
+        private static IClientBuilder WithClusterConfig(this IClientBuilder builder, IConfiguration configRoot)
         {
             return builder
-                .AddStartupTask<RabbitMQTestStartupTask>()
                 .UseLocalhostClustering()
-                .AddMemoryGrainStorage("PubSubStore")
                 .Configure<ClusterOptions>(configRoot.GetSection("ClusterOptions"));
         }
 
-        private static ISiloHostBuilder WithParts(this ISiloHostBuilder builder)
+        private static IClientBuilder WithParts(this IClientBuilder builder)
         {
             return builder
-                .ConfigureApplicationParts(mgr => mgr.AddApplicationPart(typeof(ImplicitGrain).Assembly));
+                .ConfigureApplicationParts(parts => parts
+                    .AddFromAppDomain()
+                    .WithReferences());
         }
 
-        private static ISiloHostBuilder WithRabbitMQ(this ISiloHostBuilder builder, IConfiguration configRoot)
+        private static IClientBuilder WithRabbitMQ(this IClientBuilder builder, IConfiguration configRoot)
         {
-            string rabbitmqName = "Default";
             return builder
                 .AddRabbitMQStreams<RabbitMQDefaultMapper>(name: rabbitmqName, configure: null)
                 //.AddRabbitMQStreams<RabbitMQDefaultMapper>(rabbitmqName, ob =>
@@ -101,17 +107,22 @@ namespace Orleans.Providers.RabbitMQ.Tests.Host
                 .ConfigureServices(s => s.Configure<RabbitMQStreamProviderOptions>(rabbitmqName, configRoot.GetSection(RabbitMQStreamProviderOptions.SECTION_NAME)));
         }
 
-        public static IConfigurationRoot GetConfiguration()
+        private static async Task<IList<StreamSubscriptionHandle<int>>> SubscribeStream(IClusterClient client)
         {
-            var builder = new ConfigurationBuilder()
-                .SetBasePath(Directory.GetCurrentDirectory())
-                .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
-#if DEBUG
-                .AddJsonFile($"appsettings.Development.json", optional: true)
-#endif
-                ;
+            var streamProvider = client.GetStreamProvider(rabbitmqName);
+            var stream = streamProvider.GetStream<int>(Guid.Empty, "TestNamespace");
+            var subscriptionHandle = await stream.SubscribeAsync(
+                async (data, token) =>
+                {
+                    await Task.Run(() => Console.WriteLine($"client<<<:{data}"));
+                });
 
-            return builder.Build();
+            var shs = await stream.GetAllSubscriptionHandles();
+            // foreach (var sh in shs)
+            // {
+            //     sh.ResumeAsync(async (data, token) => await Task.Run(() => Console.WriteLine($"stream:{data}")));
+            // }
+            return shs;
         }
     }
 }

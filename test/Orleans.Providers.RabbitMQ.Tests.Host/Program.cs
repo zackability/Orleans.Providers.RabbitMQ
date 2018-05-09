@@ -8,7 +8,9 @@ namespace Orleans.Providers.RabbitMQ.Tests.Host
         public static int Main(string[] args)
         {
             TestSilo.StartSilo().Wait();
+            TestClient.StartClient().Wait();
             WaitForKey();
+            TestClient.CloseClient().Wait();
             return TestSilo.StopSilo().Result;
         }
 
